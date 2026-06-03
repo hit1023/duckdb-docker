@@ -1,6 +1,7 @@
 services:
   duckdb:
     image: sforcedocker/duckdb
+    platform: linux/amd64
     container_name: duckdb
     ports:
       - "4213:80"
