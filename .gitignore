@@ -1,0 +1,9 @@
+# DuckDB データファイル（ローカルのみ）
+data/*.duckdb
+data/*.duckdb.wal
+data/*.csv
+data/*.parquet
+data/notebooks/
+
+# Mac
+.DS_Store

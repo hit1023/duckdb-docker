@@ -1,0 +1,14 @@
+services:
+  duckdb:
+    image: sforcedocker/duckdb
+    container_name: duckdb
+    ports:
+      - "4213:80"
+      - "4214:4213"
+    volumes:
+      - ./data:/db
+      - ./data/notebooks:/root/.duckdb/extension_data/ui
+      - ./nginx.conf:/etc/nginx/nginx-custom.conf:ro
+    tty: true
+    entrypoint: >
+      sh -c "cp /etc/nginx/nginx-custom.conf /etc/nginx/nginx.conf && /entrypoint.sh"
