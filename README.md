@@ -90,6 +90,34 @@ SELECT * FROM read_json_auto('/db/users.json');
 SELECT * FROM read_parquet('/db/*.parquet');
 ```
 
+##### Parquetとは（補足）
+
+Parquetは CSV/JSON のような**行指向のテキスト形式ではなく**、Apache製の**列指向（columnar）バイナリ形式**。カラムごとにまとめて圧縮して保持するため、`cat`や`xxd`でそのまま人間が読める内容にはならない。特徴は以下の通り：
+
+- **列指向**: 行ではなく列単位でデータをまとめて格納するので、特定の列だけを読む集計クエリが高速・省メモリ
+- **バイナリ+圧縮**: SNAPPY/GZIP等で列ごとに圧縮されるため、同じデータでもCSV/JSONよりファイルサイズが小さくなりやすい
+- **スキーマ内蔵**: 列名・型がファイル自体に埋め込まれている（CSVのようにヘッダー行だけで型が曖昧、ということがない）
+- **フッターにメタデータ**: ファイル末尾にスキーマや統計情報を持つフッターがあり、拡張子や中身の先頭・末尾に `PAR1` というマジックナンバーが付く
+
+実際に3つのファイルを比べると、同じ内容でもサイズが異なる：
+
+```bash
+$ ls -la data/users.csv data/users.json data/users.parquet
+-rw-r--r--  57 data/users.csv
+-rw-r--r-- 113 data/users.json
+-rw-r--r-- 718 data/users.parquet   # ヘッダー/フッターのメタデータ分、小さいデータではむしろ大きくなる
+```
+
+バイナリであることは `xxd` で確認できる（先頭と末尾に `PAR1` というマジックナンバーが見える）：
+
+```bash
+$ xxd data/users.parquet | head -1
+00000000: 5041 5231 1504 1510 1514 4c15 0415 0000  PAR1......L.....
+
+$ xxd data/users.parquet | tail -1
+000002c0: 6432 6636 2900 6a01 0000 5041 5231        d2f6).j...PAR1
+```
+
 ##### Parquetの例
 
 `data/users.parquet`（`id, name, city` の2行）を実際にクエリすると：
@@ -106,6 +134,43 @@ SELECT * FROM read_parquet('/db/users.parquet');
 │     1 │ 田中太郎 │ 横浜    │
 │     2 │ 鈴木花子 │ 東京    │
 └───────┴──────────┴─────────┘
+```
+
+DuckDBには内部のスキーマ・列ごとの圧縮方式を覗ける関数もある（テキストで中身を見られない代わりに、これで構造を確認できる）：
+
+```sql
+-- スキーマ構造（ネスト情報含む）
+SELECT name, type, num_children FROM parquet_schema('/db/users.parquet');
+```
+
+```
+┌───────────────┬────────────┬──────────────┐
+│     name      │    type    │ num_children │
+│    varchar    │  varchar   │    int64     │
+├───────────────┼────────────┼──────────────┤
+│ duckdb_schema │ NULL       │            3 │
+│ id            │ INT32      │         NULL │
+│ name          │ BYTE_ARRAY │         NULL │
+│ city          │ BYTE_ARRAY │         NULL │
+└───────────────┴────────────┴──────────────┘
+```
+
+```sql
+-- 列ごとの圧縮方式・サイズ
+SELECT column_id, path_in_schema, num_values, compression,
+       total_compressed_size, total_uncompressed_size
+FROM parquet_metadata('/db/users.parquet');
+```
+
+```
+┌───────────┬────────────────┬────────────┬─────────────┬───────────────────────┬─────────────────────────┐
+│ column_id │ path_in_schema │ num_values │ compression │ total_compressed_size │ total_uncompressed_size │
+│   int64   │    varchar     │   int64    │   varchar   │         int64         │          int64          │
+├───────────┼────────────────┼────────────┼─────────────┼───────────────────────┼─────────────────────────┤
+│         0 │ id             │          2 │ SNAPPY      │                    56 │                     111 │
+│         1 │ name           │          2 │ SNAPPY      │                    79 │                     135 │
+│         2 │ city           │          2 │ SNAPPY      │                    68 │                     123 │
+└───────────┴────────────────┴────────────┴─────────────┴───────────────────────┴─────────────────────────┘
 ```
 
 CSVから作る場合は `COPY` で変換できる：
