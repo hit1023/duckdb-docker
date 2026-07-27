@@ -267,6 +267,102 @@ harlequin -r ./data/mydb.duckdb
 harlequin ./data/mydb.duckdb
 ```
 
+### 5. JOINの例
+
+users（顧客）と orders（注文）の2テーブルで確認：
+
+```sql
+CREATE OR REPLACE TABLE users (id INTEGER, name VARCHAR, city VARCHAR);
+INSERT INTO users VALUES (1,'田中太郎','横浜'),(2,'鈴木花子','東京'),(3,'佐藤次郎','大阪');
+
+CREATE OR REPLACE TABLE orders (order_id INTEGER, user_id INTEGER, item VARCHAR, price INTEGER);
+INSERT INTO orders VALUES (101,1,'ノートPC',120000),(102,1,'マウス',3000),(103,2,'キーボード',8000);
+```
+
+**INNER JOIN**（注文があるユーザーだけ）:
+
+```sql
+SELECT u.name, u.city, o.item, o.price
+FROM users u
+JOIN orders o ON u.id = o.user_id
+ORDER BY u.id, o.order_id;
+```
+
+```
+┌──────────┬─────────┬────────────┬────────┐
+│   name   │  city   │    item    │ price  │
+│ varchar  │ varchar │  varchar   │ int32  │
+├──────────┼─────────┼────────────┼────────┤
+│ 田中太郎 │ 横浜    │ ノートPC   │ 120000 │
+│ 田中太郎 │ 横浜    │ マウス     │   3000 │
+│ 鈴木花子 │ 東京    │ キーボード │   8000 │
+└──────────┴─────────┴────────────┴────────┘
+```
+
+**LEFT JOIN**（注文が無い佐藤次郎も出てくる）:
+
+```sql
+SELECT u.name, u.city, o.item, o.price
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+ORDER BY u.id;
+```
+
+```
+┌──────────┬─────────┬────────────┬────────┐
+│   name   │  city   │    item    │ price  │
+│ varchar  │ varchar │  varchar   │ int32  │
+├──────────┼─────────┼────────────┼────────┤
+│ 田中太郎 │ 横浜    │ マウス     │   3000 │
+│ 田中太郎 │ 横浜    │ ノートPC   │ 120000 │
+│ 鈴木花子 │ 東京    │ キーボード │   8000 │
+│ 佐藤次郎 │ 大阪    │ NULL       │ NULL   │
+└──────────┴─────────┴────────────┴────────┘
+```
+
+**LEFT JOIN + GROUP BY**（ユーザーごとの注文数・合計金額、未購入は0件・NULL）:
+
+```sql
+SELECT u.name, count(o.order_id) AS 注文数, sum(o.price) AS 合計金額
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+GROUP BY u.name
+ORDER BY u.name;
+```
+
+```
+┌──────────┬────────┬──────────┐
+│   name   │ 注文数 │ 合計金額 │
+│ varchar  │ int64  │  int128  │
+├──────────┼────────┼──────────┤
+│ 佐藤次郎 │      0 │     NULL │
+│ 田中太郎 │      2 │   123000 │
+│ 鈴木花子 │      1 │     8000 │
+└──────────┴────────┴──────────┘
+```
+
+## MySQLとの比較
+
+DuckDBは標準SQL寄りで、MySQLと共通する構文も多いが差異もある。普段MySQLに慣れている場合の対応表：
+
+| やりたいこと | MySQL | DuckDB |
+|---|---|---|
+| CLIで接続 | `mysql -u user -p db` | `duckdb mydb.duckdb`（本環境では `docker compose exec duckdb duckdb /db/mydb.duckdb`） |
+| テーブル一覧 | `SHOW TABLES;` | `SHOW TABLES;`（同じ構文が使える） |
+| テーブル構造確認 | `DESCRIBE users;` / `SHOW COLUMNS FROM users;` | `DESCRIBE users;`（同じ構文が使える） |
+| DB一覧 | `SHOW DATABASES;` | `SHOW DATABASES;`（ATTACHしたDB一覧が出る） |
+| 文字列連結 | `CONCAT(a, b)` | `a \|\| b`（標準SQLの `\|\|` を使う。`CONCAT()` 関数もある） |
+| 識別子のクォート | `` `name` ``（バッククォート） | `"name"`（ダブルクォート。バッククォートは使えない＝検証済み） |
+| LIMIT / OFFSET | `LIMIT 10 OFFSET 5` | `LIMIT 10 OFFSET 5`（同じ構文） |
+| 自動採番 | `id INT AUTO_INCREMENT` | `CREATE SEQUENCE`＋`DEFAULT nextval('...')`（`GENERATED ALWAYS AS IDENTITY`は未実装＝検証済み） |
+| 現在時刻 | `NOW()` | `now()`（同じ関数名で使える） |
+| CSVインポート | `LOAD DATA INFILE '...' INTO TABLE t;` | `CREATE TABLE t AS SELECT * FROM read_csv_auto('...');`（ファイルを直接クエリできるのでインポート自体が不要な場合も多い） |
+| 外部DBに接続 | 標準で対応 | `mysql_scanner` 拡張が必要（`INSTALL mysql; LOAD mysql; ATTACH '...' AS mysqldb (TYPE mysql);`） |
+| ストレージ形式 | 行指向（InnoDB等） | 列指向（DuckDB独自形式 + Parquetとの親和性が高い） |
+| 用途の想定 | サーバー常駐のOLTP（トランザクション処理） | 単一プロセス埋め込みのOLAP（分析・集計処理） |
+
+`SHOW TABLES` / `DESCRIBE` / `LIMIT OFFSET` / `NOW()` はMySQLとほぼ同じ書き方で動くため、単純な参照・集計クエリは移植しやすい。一方でバッククォートでの識別子クォートやMySQL固有関数（`GROUP_CONCAT`等）はそのままでは動かないため置き換えが必要。
+
 ## 動作確認
 
 ```bash
