@@ -3,6 +3,7 @@ data/*.duckdb
 data/*.duckdb.wal
 data/*.csv
 data/*.parquet
+data/*.json
 data/notebooks/
 
 # Mac

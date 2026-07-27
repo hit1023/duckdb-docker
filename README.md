@@ -77,6 +77,85 @@ SELECT * FROM read_csv_auto('/db/users.csv');
 SELECT * FROM read_parquet('/db/users.parquet');
 ```
 
+#### 対応フォーマット
+
+このイメージには標準で `json` と `parquet` 拡張が入っており（`core_functions`同様に自動ロード）、追加インストールなしで以下がすぐ使える。
+
+```sql
+SELECT * FROM read_csv_auto('/db/users.csv');
+SELECT * FROM read_parquet('/db/users.parquet');
+SELECT * FROM read_json_auto('/db/users.json');
+
+-- globパターンで複数ファイルをまとめて読み込みも可能
+SELECT * FROM read_parquet('/db/*.parquet');
+```
+
+##### Parquetの例
+
+`data/users.parquet`（`id, name, city` の2行）を実際にクエリすると：
+
+```sql
+SELECT * FROM read_parquet('/db/users.parquet');
+```
+
+```
+┌───────┬──────────┬─────────┐
+│  id   │   name   │  city   │
+│ int32 │ varchar  │ varchar │
+├───────┼──────────┼─────────┤
+│     1 │ 田中太郎 │ 横浜    │
+│     2 │ 鈴木花子 │ 東京    │
+└───────┴──────────┴─────────┘
+```
+
+CSVから作る場合は `COPY` で変換できる：
+
+```sql
+COPY (SELECT * FROM read_csv_auto('/db/users.csv')) TO '/db/users.parquet' (FORMAT parquet);
+```
+
+##### JSONの例
+
+`data/users.json`（配列形式のレコード）:
+
+```json
+[
+  {"id": 1, "name": "田中太郎", "city": "横浜"},
+  {"id": 2, "name": "鈴木花子", "city": "東京"}
+]
+```
+
+これを実際にクエリすると：
+
+```sql
+SELECT * FROM read_json_auto('/db/users.json');
+```
+
+```
+┌───────┬──────────┬─────────┐
+│  id   │   name   │  city   │
+│ int64 │ varchar  │ varchar │
+├───────┼──────────┼─────────┤
+│     1 │ 田中太郎 │ 横浜    │
+│     2 │ 鈴木花子 │ 東京    │
+└───────┴──────────┴─────────┘
+```
+
+それ以外の形式はDuckDBの拡張機能をコンテナ内から追加インストールすれば使える（コンテナはインターネットに出られるので `INSTALL` 自体は可能。イメージには焼き込まれていないため、コンテナを再作成すると再インストールが必要）。
+
+| 拡張 | 用途 | 有効化コマンド |
+|---|---|---|
+| `httpfs` | S3 / HTTP(S) / GCSなど、リモートのCSV・Parquetを直接クエリ | `INSTALL httpfs; LOAD httpfs;` |
+| `sqlite_scanner` | SQLiteファイルをそのままATTACH | `INSTALL sqlite; LOAD sqlite;` |
+| `postgres_scanner` | PostgreSQLに直接ATTACHしてクエリ | `INSTALL postgres; LOAD postgres;` |
+| `mysql_scanner` | MySQLに直接ATTACH | `INSTALL mysql; LOAD mysql;` |
+| `spatial` | Shapefile/GeoJSON等の地理空間データ、`ST_Read`経由でExcel(.xlsx)読み込みも可 | `INSTALL spatial; LOAD spatial;` |
+| `iceberg` | Apache Icebergテーブルの読み込み | `INSTALL iceberg; LOAD iceberg;` |
+| `delta` | Delta Lakeテーブルの読み込み | `INSTALL delta; LOAD delta;` |
+| `avro` | Avroファイルの読み込み | `INSTALL avro; LOAD avro;` |
+
+常用する拡張がある場合は [Dockerfile](Dockerfile) の `RUN duckdb -c "INSTALL ui;"` の行に `INSTALL httpfs;` などを追記してイメージに焼き込んでおくと、コンテナ再作成のたびに入れ直す必要がなくなる。
+
 ### 2. コンテナ内のDuckDB CLIを直接使う
 
 ```bash
